@@ -49,14 +49,6 @@ const schema = new Map([
   }],
 ]);
 
-function getProgramId() {
-  return new web3.PublicKey(fs.readFileSync('program-id').toString());
-}
-
-function getLottery() {
-  return new web3.PublicKey(fs.readFileSync('lottery').toString());
-}
-
 async function getPayer() {
   let payer = web3.Keypair.generate();
   let connection = new web3.Connection(web3.clusterApiUrl('devnet'), 'confirmed');
@@ -69,6 +61,26 @@ async function getPayer() {
   return payer;
 }
 
+function getProgramId() {
+  const data = fs.readFileSync('program-id').toString();
+  const lines = data.split(/\r?\n/);
+  return new web3.PublicKey(lines[0]);
+}
+
+function getLottery() {
+  return new web3.PublicKey(fs.readFileSync('lottery').toString());
+}
+
+async function getAdmin() {
+  if (!fs.existsSync('admin')) {
+    let admin = await getPayer();
+    fs.writeFileSync('admin', admin.publicKey.toBase58());
+    return admin.publicKey;
+  } else {
+    return new web3.PublicKey(fs.readFileSync('admin').toString());
+  }
+}
+
 async function createLottery() {
   let admin = await getPayer();
   let programId = getProgramId();
@@ -76,6 +88,7 @@ async function createLottery() {
   let connection = new web3.Connection(web3.clusterApiUrl('devnet'), 'confirmed');
   let minimumLamportsForRentExemption = await connection.getMinimumBalanceForRentExemption(LOTTERY_SIZE);
 
+  console.log(`program id: ${programId}`);
   console.log(`minimum lamports: ${minimumLamportsForRentExemption}`);
   let createLotteryTransaction = new web3.Transaction().add(
     web3.SystemProgram.createAccount({
@@ -93,7 +106,6 @@ async function createLottery() {
   );
   
   await web3.sendAndConfirmTransaction(connection, createLotteryTransaction, [admin, lottery]);
-
   const lotteryAccountInfo = await connection.getAccountInfo(lottery.publicKey);
   const lotteryData = borsh.deserialize(schema, Lottery, lotteryAccountInfo.data);
   console.log(lotteryData);
@@ -108,56 +120,52 @@ async function buyTicket() {
   let customer = await getPayer();
   let programId = getProgramId();
   let lottery = getLottery();
-  //let list = await getList();
-  let ticket = web3.Keypair.generate();
+  let connection = new web3.Connection(web3.clusterApiUrl('devnet'), 'confirmed');
 
   let buyTicketTransaction = new web3.Transaction().add(
-    web3.SystemProgram.createAccount({
-      fromPubkey: customer.publicKey,
-      lamports: 1000,
-      newAccountPubkey: ticket.publicKey,
-      programId,
-      space: TICKET_SIZE,
-    }),
-    new web3.Transaction({
+    new web3.TransactionInstruction({
       keys: [
-        { pubkey: lottery, isSigner: true, isWritable: false },
+        { pubkey: lottery, isSigner: false, isWritable: true },
         { pubkey: customer.publicKey, isSigner: true, isWritable: false },
-        { pubkey: ticket.publicKey, isSigner: false, isWritable: true },
+        { pubkey: web3.SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       programId,
-      data: borsh.serialize(schema, new Cmd({ which: CMD_BUY, winner: null })),
+      data: borsh.serialize(schema, new Cmd({ which: CMD_BUY })),
     })
   );
 
-  await web3.sendAndConfirmTransaction(connection, buyTicketTransaction, [customer, lottery]);
-  console.log(`customer ${customer.publicKey.toBase58()} bought ${ticket.publicKey.toBase58()}`);
+  await web3.sendAndConfirmTransaction(connection, buyTicketTransaction, [customer]);
+  console.log(`customer ${customer.publicKey.toBase58()}`);
 }
 
 async function endLottery() {
   let admin = await getAdmin();
   let programId = await getProgramId();
+  let lottery = getLottery();
 
+  const seed = Math.floor(Math.random() * 4294967295);
+  let connection = new web3.Connection(web3.clusterApiUrl('devnet'), 'confirmed');
   let endLotteryTransaction = new web3.Transaction().add(
-    new web3.Transaction({
+    new web3.TransactionInstruction({
       keys: [
-        { pubkey: lottery.publicKey.toBase58(), isSigner: true, isWritable: true },
+        { pubkey: lottery, isSigner: true, isWritable: true },
         { pubkey: admin.publicKey.toBase58(), isSigner: true, isWritable: false },
       ],
       programId,
-      data: borsh.serialize(schema, new Cmd({ which: CMD_SET_END, winner: null })),
+      data: borsh.serialize(schema, new Cmd({ which: CMD_END, seed })),
     })
   );
 
-  await connection.confirmTransaction(endLotteryTransaction);
+  await web3.sendAndConfirmTransaction(connection, endLotteryTransaction, [end]);
 }
 
 async function setWinner() {
   let programId = await getProgramId();
   let lottery = await getLottery();
 
-  let connection = new web3.Connection(web3.clusterApiUrl('devnet'), 'confirmed');
-  let lotteryInfo = await connection.getAccountInfo(lottery.publicKey);
+
+  const lotteryAccountInfo = await connection.getAccountInfo(lottery.publicKey);
+  const lotteryData = borsh.deserialize(schema, Lottery, lotteryAccountInfo.data);
 
   // TODO: deserialize lottery account info
   //       calc winner from account info
@@ -173,6 +181,7 @@ async function setWinner() {
     })
   );
 
+  await web3.sendAndConfirmTransaction(connection, setWinnerTransaction, [admin]);
   return winner;
 }
 
@@ -197,11 +206,6 @@ async function collectWinnings() {
 
 async function run() {
   switch (argv[2]) {
-    case 'deploy':
-      const programId = await deploy();
-      fs.writeFileSync('program-id', programId);
-      console.log(`deployed: ${programId}`);
-      break;
     case 'create':
       if (fs.existsSync('lottery')) {
         console.log('lottery file already exists');

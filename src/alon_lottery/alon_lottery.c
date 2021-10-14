@@ -199,8 +199,7 @@ void cmd_deinit(struct cmd *cmd) {
 #define CMD_SET_WINNER  (3)
 
 uint64_t create_lottery(struct lottery *lottery, SolParameters *params) {
-  if (lottery->count > 0)
-    return ERROR_INVALID_ARGUMENT;
+  sol_assert(lottery->count == 0);
 
   *lottery = (struct lottery) {
     // TODO: user defined options
@@ -220,12 +219,12 @@ uint64_t create_lottery(struct lottery *lottery, SolParameters *params) {
 uint64_t buy_ticket(struct lottery *lottery, SolParameters *params) {
   SolAccountInfo *lottery_acct = &params->ka[0];
   SolAccountInfo *customer_acct = &params->ka[1];
-  SolAccountInfo *ticket_acct = &params->ka[2];
+  SolAccountInfo *system_program_acct = &params->ka[2];
 
   sol_assert(!lottery->done);
   sol_assert(!lottery->winner.is_set);
   sol_assert(lottery->count < lottery->max_tickets);
-  sol_assert(lottery_acct->is_signer);
+  //sol_assert(lottery_acct->is_signer);
   sol_assert(lottery_acct->is_writable);
   sol_assert(customer_acct->is_signer);
   sol_assert(customer_acct->is_writable);
@@ -235,17 +234,64 @@ uint64_t buy_ticket(struct lottery *lottery, SolParameters *params) {
   *lottery_acct->lamports += lottery->lamports_per_ticket;
 
   // TODO: create ticket
+  uint64_t num = lottery->count + 1;
+  uint8_t bump;
+  const SolSignerSeed seeds[] = {
+    { .addr = params->program_id->x, .len = sizeof(SolPubkey) },
+    { .addr = lottery_acct->key->x, .len = sizeof(SolPubkey) },
+    { .addr = (uint8_t *)&num, .len = sizeof(num) },
+    { .addr = &bump, .len = 1 },
+  };
 
-  struct ticket ticket;
-  if (0 < ticket_deserialize_account(ticket_acct, &ticket))
-    return ERROR_INVALID_ARGUMENT;
+  SolPubkey ticket;
+  sol_assert(SUCCESS == sol_try_find_program_address(
+          seeds, SOL_ARRAY_SIZE(seeds) - 1, params->program_id, &ticket, &bump));
 
-  ticket.num = ++lottery->count;
-  sol_memcpy(ticket.owner, customer_acct->owner->x, sizeof(SolPubkey));
+  sol_log("found program address");
+  // invoke account creation system program
+  SolAccountMeta arguments[] = {
+    { customer_acct->key, true, true },
+    { &ticket, true, true },
+  };
 
-  if (0 < ticket_serialize_account(&ticket, ticket_acct))
-    return ERROR_INVALID_ARGUMENT;
-  
+  uint8_t data[4 + 8 + 8 + 32]; // TODO: not sure what the first 4 bytes are for?
+  *(uint64_t *)(data + 4) = 1000; // lamports
+  *(uint64_t *)(data + 4 + 8) = 40; // space
+  sol_memcpy(data + 4 + 8 + 8, customer_acct->key, sizeof(SolPubkey)); // owner
+
+  const SolInstruction instruction = {
+    .program_id = system_program_acct->key,
+    .accounts = arguments,
+    .account_len = SOL_ARRAY_SIZE(arguments),
+    .data = data,
+    .data_len = SOL_ARRAY_SIZE(data),
+  };
+
+  const SolSignerSeeds signer_seeds[] = {{seeds, 4}};
+  sol_assert(SUCCESS == sol_invoke_signed(
+    &instruction,
+    params->ka,
+    params->ka_num,
+    signer_seeds,
+    SOL_ARRAY_SIZE(signer_seeds)));
+
+  //SolAccountMeta argument = { &ticket_acct, true, true };
+  //const SolInstruction init_instruction = {
+  //  .program_id = params->program_id,
+  //  .accounts = &argument,
+  //  .account_len = 1,
+  //  .data = init_data,
+  //  .data_len = sizeof(init_data);
+  //};
+
+  //sol_assert(SUCCESS = sol_invoke_signed(
+  //  &init_instruction,
+  //  ,
+  //  ,
+  //  signer_seeds
+
+  // recursive call to init ticket
+
   return SUCCESS;
 }
 
@@ -272,8 +318,6 @@ uint64_t set_winner(struct lottery *lottery, struct cmd *cmd, SolParameters *par
   lottery->winner.is_set = true;
   lottery->winner.val = cmd->winner.val;
 
-  // TODO: generate derived account and transfer to owner
-
   return ERROR_INVALID_ARGUMENT;
 }
 
@@ -281,40 +325,27 @@ uint64_t entrypoint(const uint8_t *input) {
   SolAccountInfo accounts[3];
   SolParameters params = { .ka = accounts };
 
-  if (!sol_deserialize(input, &params, SOL_ARRAY_SIZE(accounts)))
-    return ERROR_INVALID_ARGUMENT;
-
   struct cmd cmd;
-  if (0 < cmd_deserialize_instruction(&params, &cmd))
-    return ERROR_INVALID_ARGUMENT;
-
   struct lottery lottery;
-  if (0 < lottery_deserialize_account(&params.ka[0], &lottery))
-    return ERROR_INVALID_ARGUMENT;
 
-  int err = 0;
+  sol_assert(sol_deserialize(input, &params, SOL_ARRAY_SIZE(accounts)));
+  sol_assert(0 == cmd_deserialize_instruction(&params, &cmd));
+  sol_assert(0 == lottery_deserialize_account(&params.ka[0], &lottery));
+
   switch (cmd.which) {
     case CMD_CREATE:
-      err = create_lottery(&lottery, &params);
+      sol_assert (0 == create_lottery(&lottery, &params));
       break;
     case CMD_BUY:
-      err = buy_ticket(&lottery, &params);
+      sol_assert(0 == buy_ticket(&lottery, &params));
       break;
     case CMD_END:
-      err = end_lottery(&lottery, &params);
-      break;
-    case CMD_SET_WINNER:
-      err = set_winner(&lottery, &cmd, &params);
+      sol_assert(0 == end_lottery(&lottery, &params));
       break;
     default:
       return ERROR_INVALID_ARGUMENT;
   }
 
-  if (err != 0)
-      return ERROR_INVALID_ARGUMENT;
-
-  if (0 < lottery_serialize_account(&lottery, &params.ka[0]))
-      return ERROR_INVALID_ARGUMENT;
-
+  sol_assert(0 == lottery_serialize_account(&lottery, &params.ka[0]));
   return SUCCESS;
 }
