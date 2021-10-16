@@ -1,13 +1,33 @@
-#include "alon.h"
+#pragma once
+
+#include <solana_sdk.h>
 
 #define ENOBUFS (5)
 
+struct lottery {
+    uint64_t lamports_per_ticket;
+    uint64_t deadline;
+    uint64_t max_tickets;
+    uint64_t count;
+    struct {
+        uint8_t is_set;
+        uint64_t val;
+    } winner;
+};
+
+struct cmd {
+    uint8_t which;
+    struct {
+        uint8_t is_set;
+        uint64_t val;
+    } seed;
+};
+
 int lottery_deserialize(const uint8_t *buf, uint64_t len, struct lottery* out) {
     sol_memcpy(&out->lamports_per_ticket, buf + 0, sizeof(uint64_t));
-    sol_memcpy(&out->deadline, buf + 8, sizeof(uint64_t));
-    sol_memcpy(&out->max_tickets, buf + 16, sizeof(uint64_t));
-    sol_memcpy(&out->count, buf + 24, sizeof(uint64_t));
-    uint64_t offset = 32;
+    sol_memcpy(&out->max_tickets, buf + 8, sizeof(uint64_t));
+    sol_memcpy(&out->count, buf + 16, sizeof(uint64_t));
+    uint64_t offset = 24;
     {
         uint8_t is_set;
         if (len < offset + sizeof(uint8_t))
@@ -40,10 +60,9 @@ int lottery_deserialize_instruction(SolParameters *params, struct lottery* out) 
 
 int lottery_serialize(struct lottery *in, uint8_t *buf, uint64_t len) {
     sol_memcpy(buf + 0, &in->lamports_per_ticket, sizeof(uint64_t));
-    sol_memcpy(buf + 8, &in->deadline, sizeof(uint64_t));
-    sol_memcpy(buf + 16, &in->max_tickets, sizeof(uint64_t));
-    sol_memcpy(buf + 24, &in->count, sizeof(uint64_t));
-    uint64_t offset = 32;
+    sol_memcpy(buf + 8, &in->max_tickets, sizeof(uint64_t));
+    sol_memcpy(buf + 16, &in->count, sizeof(uint64_t));
+    uint64_t offset = 24;
     if (len < offset + sizeof(uint8_t))
         return -ENOBUFS;
 
