@@ -1,4 +1,5 @@
-#include <solana_sdk.h>
+// A super simple lottery program to show off Alon, don't actually use it with money
+
 #include "example_lottery.h"
 
 #define CMD_CREATE      (0)
@@ -10,8 +11,7 @@ uint64_t create_lottery(struct lottery *lottery, SolParameters *params) {
   sol_assert(lottery->count == 0);
 
   *lottery = (struct lottery) {
-    // TODO: user defined options
-    .lamports_per_ticket = 1000,
+    .lamports_per_ticket = 100000,
     .max_tickets = 100,
     .deadline = 0,
     .count = 0,
@@ -77,7 +77,6 @@ uint64_t end_lottery(struct lottery *lottery, struct cmd *cmd, SolParameters *pa
   sol_assert(cmd->seed.is_set);
   sol_assert(lottery_acct->is_writable);
 
-  // here at alon industries we only use the most advanced of algorithms
   lottery->winner.val = cmd->seed.val % lottery->count;
   lottery->winner.is_set = true;
 
