@@ -39,15 +39,20 @@ const schema = new Map([
   }],
 ]);
 
+const sleep = async (milliseconds) => await new Promise((resolve,) => setTimeout(resolve, milliseconds));
+
 async function getPayer() {
   let payer = web3.Keypair.generate();
   let connection = new web3.Connection(web3.clusterApiUrl('devnet'), 'confirmed');
+  await sleep(1000);
   let airdropSignature = await connection.requestAirdrop(
     payer.publicKey,
     web3.LAMPORTS_PER_SOL,
   );
 
+  await sleep(1000);
   await connection.confirmTransaction(airdropSignature);
+
   return payer;
 }
 
@@ -62,6 +67,7 @@ async function createLottery() {
   let programId = getProgramId();
   let lottery = web3.Keypair.generate();
   let connection = new web3.Connection(web3.clusterApiUrl('devnet'), 'confirmed');
+  await sleep(1000);
   let minimumLamportsForRentExemption = await connection.getMinimumBalanceForRentExemption(LOTTERY_SIZE);
 
   console.log(`program id: ${programId}`);
@@ -81,7 +87,9 @@ async function createLottery() {
     }),
   );
   
+  await sleep(1000);
   await web3.sendAndConfirmTransaction(connection, createLotteryTransaction, [admin, lottery]);
+
 
   return {
     admin,
@@ -108,6 +116,7 @@ async function buyTicket(state) {
     })
   );
 
+  await sleep(1000);
   await web3.sendAndConfirmTransaction(connection, buyTicketTransaction, [state.lottery, customer]);
   console.log(`bought a ticket: ${customer.publicKey.toBase58()}`);
   return state;
@@ -127,10 +136,12 @@ async function endLottery(state) {
     })
   );
 
+  await sleep(1000);
   await web3.sendAndConfirmTransaction(connection, endLotteryTransaction, [state.lottery, state.admin]);
   // TODO: print out winner
   return state;
 }
+
 
 async function lotteryTest() {
   let state = await createLottery();
