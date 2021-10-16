@@ -7,6 +7,8 @@ const CMD_CREATE = 0;
 const CMD_BUY = 1;
 const CMD_END = 2;
 
+const LOTTERY_SIZE = 64 + (100 * 32)
+
 class Cmd {
   constructor(val) {
     for (const [key, value] of Object.entries(val)) {
@@ -70,7 +72,7 @@ async function createLottery() {
       lamports: minimumLamportsForRentExemption,
       newAccountPubkey: lottery.publicKey,
       programId,
-      space: 64 + (100 * 32),
+      space: LOTTERY_SIZE,
     }),
     new web3.TransactionInstruction({
       keys: [{ pubkey: lottery.publicKey, isSigner: false, isWritable: true }],
